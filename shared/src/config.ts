@@ -1,6 +1,6 @@
 // All gameplay tuning numbers live here so balancing is one-file work.
 
-export const MAP_SIZE = 64;
+export const MAP_SIZE = 128;
 export const TILE_SIZE = 32;
 export const MAX_PLAYERS = 2;
 

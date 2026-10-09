@@ -29,13 +29,14 @@ The developer writes the core gameplay code themselves. Assistants **must not wr
 3. Empire requests and Imperial Favor
 4. Balancing and game feel
 5. Sprites and art (the developer draws them)
+6. Deployment: Dockerfile, hosting, domains/TLS, cluster setup. Guide step by step; the developer runs the commands and writes the config.
 
 For those areas:
 - Explain concepts, point to relevant files, and suggest approaches.
 - Review the developer's diffs for bugs and design problems.
 - When they're stuck, **hint first**. Give the full answer only when asked.
 
-Assistants **may write code directly** for plumbing: build/tooling config, deployment, networking/Colyseus issues, the asset-loading pipeline (spritesheets, atlases, animations), UI wiring, and bug fixes the developer asks for.
+Assistants **may write code directly** for plumbing: build/tooling config, networking/Colyseus issues, the asset-loading pipeline (spritesheets, atlases, animations), UI wiring, and bug fixes the developer asks for.
 
 When unsure which side a task falls on, ask.
 

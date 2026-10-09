@@ -12,6 +12,7 @@ import {
   type GameState,
   type TileMap,
   Terrain,
+  buildingTiles,
 } from "@ee/shared";
 import { useGame } from "../store";
 
@@ -97,9 +98,11 @@ export class WorldScene extends Phaser.Scene {
 
   private addBuildingSprite(id: string, b: Building) {
     const def = BUILDINGS[b.type as BuildingType];
+    const width = def.width * TILE_SIZE;
+    const height = def.height * TILE_SIZE;
     const pad = 3;
-    const rect = this.add.rectangle(pad, pad, TILE_SIZE - pad * 2, TILE_SIZE - pad * 2, def.color).setOrigin(0).setStrokeStyle(2, 0x000000, 0.5);
-    const label = this.add.text(TILE_SIZE / 2, TILE_SIZE / 2, def.name[0], { fontSize: "14px", color: "#fff", fontStyle: "bold" }).setOrigin(0.5);
+    const rect = this.add.rectangle(pad, pad, width - pad * 2, height - pad * 2, def.color).setOrigin(0).setStrokeStyle(2, 0x000000, 0.5);
+    const label = this.add.text(width / 2, height / 2, def.name[0], { fontSize: "14px", color: "#fff", fontStyle: "bold" }).setOrigin(0.5);
     const container = this.add.container(b.x * TILE_SIZE, b.y * TILE_SIZE, [rect, label]).setDepth(5);
     this.sprites.set(id, container);
   }
@@ -177,10 +180,20 @@ export class WorldScene extends Phaser.Scene {
       this.ghost.setVisible(false);
       return;
     }
+    const def = BUILDINGS[type];
+    this.ghost.setSize(
+      def.width * TILE_SIZE,
+      def.height * TILE_SIZE
+    );
+
     const { x, y } = this.tileAt(this.input.activePointer);
     const state = this.room.state;
     const occupied = new Set<string>();
-    state.buildings.forEach((b) => occupied.add(`${b.x},${b.y}`));
+    state.buildings.forEach((b) => {
+     for (const tile of buildingTiles(b.type as BuildingType, b.x, b.y)) {
+    occupied.add(`${tile.x},${tile.y}`);
+      }
+    });
     const { food, wood, stone, gold } = state;
     const valid = placementError(this.map, (bx, by) => occupied.has(`${bx},${by}`), { food, wood, stone, gold }, type, x, y) === null;
 

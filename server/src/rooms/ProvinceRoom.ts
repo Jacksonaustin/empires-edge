@@ -12,6 +12,7 @@ import {
   generateMap,
   isBuildingType,
   placementError,
+  buildingTiles,
   type BuildMessage,
   type BuildingType,
   type ErrorMessage,
@@ -68,7 +69,9 @@ export class ProvinceRoom extends Room<{ state: GameState }> {
   private addBuilding(type: BuildingType, x: number, y: number) {
     const id = String(this.nextId++);
     this.state.buildings.set(id, new Building({ id, type, x, y, hp: BUILDINGS[type].hp }));
-    this.occupied.set(`${x},${y}`, id);
+    for (const tile of buildingTiles(type, x, y)) {
+    this.occupied.set(`${tile.x},${tile.y}`, id);
+    }
   }
 
   private produce() {

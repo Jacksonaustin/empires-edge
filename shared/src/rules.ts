@@ -2,6 +2,18 @@ import { BUILDINGS, type BuildingType } from "./buildings";
 import { canAfford, type Resources } from "./resources";
 import { Terrain, terrainAt, type TileMap } from "./terrain";
 
+/** Returns every footprint tile, with x and y as the building's top-left tile. */
+export function buildingTiles(type: BuildingType, x: number, y: number): Array<{ x: number; y: number }> {
+  const { width, height } = BUILDINGS[type];
+  const tiles: Array<{ x: number; y: number }> = [];
+  for (let dy = 0; dy < height; dy++) {
+    for (let dx = 0; dx < width; dx++) {
+      tiles.push({ x: x + dx, y: y + dy });
+    }
+  }
+  return tiles;
+}
+
 /**
  * Shared placement check: the server uses it to validate, the client uses it
  * to colour the placement ghost. Returns an error message, or null if valid.
@@ -15,13 +27,31 @@ export function placementError(
   y: number,
 ): string | null {
   const def = BUILDINGS[type];
+
   if (def.unbuildable) return `${def.name} can't be built`;
-  const terrain = terrainAt(map, x, y);
-  if (terrain === undefined) return "Out of bounds";
-  if (terrain !== Terrain.Grass) return "Must build on grass";
-  if (isOccupied(x, y)) return "Tile is occupied";
-  if (def.near !== undefined && !isNear(map, x, y, def.near, 2)) {
-    return `Must be near ${Terrain[def.near].toLowerCase()}`;
+
+  const tiles = buildingTiles(type, x, y);
+
+  for (const tile of tiles) {
+   const terrain = terrainAt(map, tile.x, tile.y);
+   if (terrain === undefined) return "Out of bounds";
+   if (terrain !== Terrain.Grass) return "Must build on grass";
+   if (isOccupied(tile.x, tile.y)) return "Tile is occupied";
+  }
+
+  const near = def.near;
+
+  if (near !== undefined) {
+    const hasNearbyTerrain = tiles.some((tile) =>
+    isNear(map, tile.x, tile.y, near, 2)
+    );
+  
+
+    if (!hasNearbyTerrain) {
+      return `Must be near ${Terrain[near].toLowerCase()}`;
+    }
+
+   
   }
   if (!canAfford(resources, def.cost)) return "Not enough resources";
   return null;
