@@ -1,5 +1,5 @@
 import type { Cost, Resources } from "./resources";
-import { Terrain } from "./terrain";
+import { Terrain } from "./terrainTypes";
 
 export type BuildingType = "road" | "keep" | "farm" | "lumberCamp" | "quarry" | "house" | "wall" | "watchtower";
 

@@ -14,6 +14,11 @@ export interface BuildLineMessage {
   end: TilePosition;
 }
 
+export interface TileActionMessage {
+  x: number;
+  y: number;
+}
+
 /** Server → client notice when a command is rejected. */
 export interface ErrorMessage {
   message: string;

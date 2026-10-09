@@ -1,11 +1,7 @@
-import { MAP_SIZE } from "./config";
-
-export enum Terrain {
-  Grass = 0,
-  Forest = 1,
-  Mountain = 2,
-  River = 3,
-}
+import { MAP_SIZE, STARTING_FIELD_MARGIN } from "./config";
+import { BUILDINGS } from "./buildings";
+import { Terrain } from "./terrainTypes";
+export { Terrain } from "./terrainTypes";
 
 export const TERRAIN_COLORS: Record<Terrain, number> = {
   [Terrain.Grass]: 0x6a9c4a,
@@ -67,9 +63,17 @@ export function generateMap(seed: number, size = MAP_SIZE): TileMap {
 
   // Clear open ground around the Keep.
   const c = Math.floor(size / 2);
-  for (let y = c - 4; y <= c + 4; y++)
-    for (let x = c - 4; x <= c + 4; x++) tiles[y * size + x] = Terrain.Grass;
-
+  const margin = STARTING_FIELD_MARGIN;
+  const left = Math.max(0, c - margin);
+  const top = Math.max(0, c - margin);
+  const right = Math.min(size, c + BUILDINGS.keep.width + margin);
+  const bottom = Math.min(size, c + BUILDINGS.keep.height + margin);
+  
+  for (let y = top; y < bottom; y++) {
+    for (let x = left; x < right; x++) {
+      tiles[y * size + x] = Terrain.Grass;
+    }
+  }
   return tiles;
 }
 

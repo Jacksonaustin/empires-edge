@@ -21,6 +21,8 @@ export const GameState = schema({
   stone: t.number(),
   gold: t.number(),
   buildings: t.map(Building),
+  /** Sparse edits to the seeded terrain, keyed by "x,y". */
+  terrainOverrides: t.map("uint8"),
   players: t.map(Player),
 }, "GameState");
 export type GameState = SchemaType<typeof GameState>;

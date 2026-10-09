@@ -15,6 +15,8 @@ import {
   buildingTiles,
   buildLineTiles,
   planBuildLine,
+  removalError,
+  clearTerrainError,
   type LineBuildingType,
   type TilePosition,
 } from "@ee/shared";
@@ -35,6 +37,7 @@ export class WorldScene extends Phaser.Scene {
   /** "x,y" → type of the building covering that tile. Kept in sync with state. */
   private occupied = new Map<string, BuildingType>();
   private ghost!: Phaser.GameObjects.Rectangle;
+  private terrainChanges!: Phaser.GameObjects.Graphics;
   private linePreview!: Phaser.GameObjects.Graphics;
   private lineStart: { type: LineBuildingType; tile: TilePosition } | null = null;
   private keys!: Record<"up" | "down" | "left" | "right" | "w" | "a" | "s" | "d", Phaser.Input.Keyboard.Key>;
@@ -69,18 +72,33 @@ export class WorldScene extends Phaser.Scene {
 
   private buildWorld() {
     this.map = generateMap(this.room.state.seed);
+    this.room.state.terrainOverrides.forEach((terrain, key) => {
+      const [x, y] = key.split(",").map(Number);
+      this.map[y * MAP_SIZE + x] = terrain;
+    });
     this.drawTerrain();
+    this.terrainChanges = this.add.graphics().setDepth(1);
     this.setupCamera();
     this.setupInput();
 
     this.ghost = this.add.rectangle(0, 0, TILE_SIZE, TILE_SIZE).setOrigin(0).setDepth(10).setVisible(false);
     this.linePreview = this.add.graphics().setDepth(10);
     this.unsubscribers.push(useGame.subscribe((state, previous) => {
-      if (state.selectedBuild !== previous.selectedBuild) this.cancelLine();
+      if (state.selectedBuild !== previous.selectedBuild || state.selectedTool !== previous.selectedTool) this.cancelLine();
     }));
 
     const callbacks = Callbacks.get(this.room);
     this.unsubscribers.push(
+      callbacks.onAdd("terrainOverrides", (terrain, key) => {
+        const [x, y] = key.split(",").map(Number);
+        this.map[y * MAP_SIZE + x] = terrain;
+        const hash = Math.sin(x * 12.9898 + y * 78.233) * 43758.5453;
+        const shade = (hash - Math.floor(hash)) * 6 - 3;
+        this.terrainChanges.fillStyle(Phaser.Display.Color.ValueToColor(TERRAIN_COLORS[terrain as Terrain]).lighten(shade).color);
+        this.terrainChanges.fillRect(x * TILE_SIZE, y * TILE_SIZE, TILE_SIZE, TILE_SIZE);
+        this.terrainChanges.lineStyle(1, 0x000000, 0.08);
+        this.terrainChanges.strokeRect(x * TILE_SIZE, y * TILE_SIZE, TILE_SIZE, TILE_SIZE);
+      }),
       callbacks.onAdd("buildings", (b, id) => {
         this.addBuildingSprite(id, b);
         for (const tile of buildingTiles(b.type as BuildingType, b.x, b.y)) {
@@ -98,21 +116,44 @@ export class WorldScene extends Phaser.Scene {
   }
 
   private drawTerrain() {
-    const g = this.add.graphics();
+    // One texel per tile keeps the static terrain small and avoids replaying
+    // MAP_SIZE² Graphics rectangles on the first frame and every frame after.
+    const texture = this.textures.createCanvas("world-terrain", MAP_SIZE, MAP_SIZE)!;
+    const pixels = texture.context.createImageData(MAP_SIZE, MAP_SIZE);
     for (let y = 0; y < MAP_SIZE; y++) {
       for (let x = 0; x < MAP_SIZE; x++) {
         const terrain = this.map[y * MAP_SIZE + x] as Terrain;
         // Subtle per-tile shade noise so the map doesn't look flat.
         const hash = Math.sin(x * 12.9898 + y * 78.233) * 43758.5453;
         const shade = (hash - Math.floor(hash)) * 6 - 3;
-        g.fillStyle(Phaser.Display.Color.ValueToColor(TERRAIN_COLORS[terrain]).lighten(shade).color);
-        g.fillRect(x * TILE_SIZE, y * TILE_SIZE, TILE_SIZE, TILE_SIZE);
+        const color = Phaser.Display.Color.ValueToColor(TERRAIN_COLORS[terrain]).lighten(shade);
+        const offset = (y * MAP_SIZE + x) * 4;
+        pixels.data[offset] = color.red;
+        pixels.data[offset + 1] = color.green;
+        pixels.data[offset + 2] = color.blue;
+        pixels.data[offset + 3] = 255;
       }
     }
-    g.lineStyle(1, 0x000000, 0.08);
+    texture.context.putImageData(pixels, 0, 0);
+    texture.refresh();
+    texture.setFilter(Phaser.Textures.FilterMode.NEAREST);
+    const worldSize = MAP_SIZE * TILE_SIZE;
+    this.add.image(0, 0, texture.key).setOrigin(0).setDisplaySize(worldSize, worldSize);
+
+    const releaseTexture = () => {
+      this.events.off(Phaser.Scenes.Events.SHUTDOWN, releaseTexture);
+      this.events.off(Phaser.Scenes.Events.DESTROY, releaseTexture);
+      this.textures.remove(texture.key);
+    };
+    this.events.once(Phaser.Scenes.Events.SHUTDOWN, releaseTexture);
+    this.events.once(Phaser.Scenes.Events.DESTROY, releaseTexture);
+
+    // Centered 1px rectangles match the old strokes, including the darker
+    // intersections, without allocating stroke paths in Phaser's renderer.
+    const grid = this.add.graphics().fillStyle(0x000000, 0.08);
     for (let i = 0; i <= MAP_SIZE; i++) {
-      g.lineBetween(i * TILE_SIZE, 0, i * TILE_SIZE, MAP_SIZE * TILE_SIZE);
-      g.lineBetween(0, i * TILE_SIZE, MAP_SIZE * TILE_SIZE, i * TILE_SIZE);
+      grid.fillRect(i * TILE_SIZE - 0.5, 0, 1, worldSize);
+      grid.fillRect(0, i * TILE_SIZE - 0.5, worldSize, 1);
     }
   }
 
@@ -175,9 +216,13 @@ export class WorldScene extends Phaser.Scene {
       const wasClick = this.dragStart && !this.dragged;
       this.dragStart = null;
       if (!wasClick || p.rightButtonReleased()) return;
-      const type = useGame.getState().selectedBuild;
-      if (!type) return;
+      const { selectedBuild: type, selectedTool: tool } = useGame.getState();
       const { x, y } = this.tileAt(p);
+      if (tool) {
+        this.room.send(tool, { x, y });
+        return;
+      }
+      if (!type) return;
       if (type === "road" || type === "wall") {
         if (!this.lineStart || this.lineStart.type !== type) {
           if (x < 0 || y < 0 || x >= MAP_SIZE || y >= MAP_SIZE) {
@@ -226,8 +271,35 @@ export class WorldScene extends Phaser.Scene {
   }
 
   private updateGhost() {
-    const type = useGame.getState().selectedBuild;
+    const { selectedBuild: type, selectedTool: tool } = useGame.getState();
     this.linePreview.clear();
+    if (tool) {
+      const { x, y } = this.tileAt(this.input.activePointer);
+      let targetX = x, targetY = y, width = 1, height = 1;
+      let error: string | null;
+      if (tool === "removeBuilding") {
+        error = removalError(this.occupied.get(`${x},${y}`));
+        const building = [...this.room.state.buildings.values()].find((b) => {
+          const def = BUILDINGS[b.type as BuildingType];
+          return x >= b.x && x < b.x + def.width && y >= b.y && y < b.y + def.height;
+        });
+        if (building) {
+          const def = BUILDINGS[building.type as BuildingType];
+          targetX = building.x;
+          targetY = building.y;
+          width = def.width;
+          height = def.height;
+        }
+      } else {
+        error = clearTerrainError(this.map, (bx, by) => this.occupied.has(`${bx},${by}`), x, y);
+      }
+      this.ghost.setVisible(true)
+        .setPosition(targetX * TILE_SIZE, targetY * TILE_SIZE)
+        .setSize(width * TILE_SIZE, height * TILE_SIZE)
+        .setFillStyle(0xff5050, 0.3)
+        .setStrokeStyle(2, error ? 0xff5050 : 0x7cff7c, 1);
+      return;
+    }
     if (!type) {
       this.ghost.setVisible(false);
       return;

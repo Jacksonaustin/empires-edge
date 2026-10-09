@@ -14,6 +14,10 @@ import {
   placementError,
   buildingTiles,
   planBuildLine,
+  removalError,
+  clearTerrainError,
+  Terrain,
+  type TileActionMessage,
   type BuildLineMessage,
   type BuildMessage,
   type BuildingType,
@@ -45,6 +49,8 @@ export class ProvinceRoom extends Room<{ state: GameState }> {
 
     this.onMessage("build", (client, msg: BuildMessage) => this.handleBuild(client, msg));
     this.onMessage("buildLine", (client, msg: BuildLineMessage) => this.handleBuildLine(client, msg));
+    this.onMessage("removeBuilding", (client, msg: TileActionMessage) => this.handleRemoveBuilding(client, msg));
+    this.onMessage("clearTerrain", (client, msg: TileActionMessage) => this.handleClearTerrain(client, msg));
     this.clock.setInterval(() => this.produce(), PRODUCTION_TICK_MS);
   }
 
@@ -88,6 +94,32 @@ export class ProvinceRoom extends Room<{ state: GameState }> {
     const cost = BUILDINGS[msg.type].cost;
     for (const resource of RESOURCE_KINDS) this.state[resource] -= (cost[resource] ?? 0) * plan.tiles.length;
     for (const tile of plan.tiles) this.addBuilding(msg.type, tile.x, tile.y);
+  }
+
+  private validTileAction(msg: TileActionMessage): boolean {
+    return !!msg && Number.isInteger(msg.x) && Number.isInteger(msg.y)
+      && msg.x >= 0 && msg.y >= 0 && msg.x < MAP_SIZE && msg.y < MAP_SIZE;
+  }
+
+  private handleRemoveBuilding(client: Client, msg: TileActionMessage) {
+    if (!this.validTileAction(msg)) return this.reject(client, "Invalid removal command");
+    const id = this.occupied.get(`${msg.x},${msg.y}`);
+    const building = id === undefined ? undefined : this.state.buildings.get(id);
+    const error = removalError(building?.type as BuildingType | undefined);
+    if (error) return this.reject(client, error);
+    if (!building || id === undefined) return;
+    for (const tile of buildingTiles(building.type as BuildingType, building.x, building.y)) {
+      this.occupied.delete(`${tile.x},${tile.y}`);
+    }
+    this.state.buildings.delete(id);
+  }
+
+  private handleClearTerrain(client: Client, msg: TileActionMessage) {
+    if (!this.validTileAction(msg)) return this.reject(client, "Invalid clearing command");
+    const error = clearTerrainError(this.map, (x, y) => this.occupied.has(`${x},${y}`), msg.x, msg.y);
+    if (error) return this.reject(client, error);
+    this.map[msg.y * MAP_SIZE + msg.x] = Terrain.Grass;
+    this.state.terrainOverrides.set(`${msg.x},${msg.y}`, Terrain.Grass);
   }
 
   private addBuilding(type: BuildingType, x: number, y: number) {

@@ -14,6 +14,8 @@ export function Hud() {
   const players = useGame((s) => s.players);
   const selected = useGame((s) => s.selectedBuild);
   const selectBuild = useGame((s) => s.selectBuild);
+  const tool = useGame((s) => s.selectedTool);
+  const selectTool = useGame((s) => s.selectTool);
   const toast = useGame((s) => s.toast);
 
   return (
@@ -44,11 +46,22 @@ export function Hud() {
             <small>{formatCost(BUILDINGS[type].cost)}</small>
           </button>
         ))}
+        <button className={tool === "removeBuilding" ? "active" : ""}
+          onClick={() => selectTool(tool === "removeBuilding" ? null : "removeBuilding")}>
+          Remove Building
+          <small>No refund · Keep protected</small>
+        </button>
+        <button className={tool === "clearTerrain" ? "active" : ""}
+          onClick={() => selectTool(tool === "clearTerrain" ? null : "clearTerrain")}>
+          Clear Terrain
+          <small>Forest / mountain · Free</small>
+        </button>
       </div>
 
       {toast && <div className="toast">{toast}</div>}
       <div className="help">
         {selected === "road" || selected === "wall" ? "Click start, then click end to build · " : ""}
+        {tool ? "Click to remove · " : ""}
         Drag or WASD to pan · scroll to zoom · Esc / right-click to cancel
       </div>
     </div>

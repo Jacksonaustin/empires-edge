@@ -68,6 +68,26 @@ export function placementError(
   return null;
 }
 
+export function removalError(type: BuildingType | undefined): string | null {
+  if (type === undefined) return "No building here";
+  if (type === "keep") return "The Keep can't be removed";
+  return null;
+}
+
+export function clearTerrainError(
+  map: TileMap,
+  isOccupied: (x: number, y: number) => boolean,
+  x: number,
+  y: number,
+): string | null {
+  const terrain = terrainAt(map, x, y);
+  if (terrain === undefined) return "Out of bounds";
+  if (isOccupied(x, y)) return "Remove the building first";
+  if (terrain === Terrain.Grass) return "This tile is already clear";
+  if (terrain === Terrain.River) return "Rivers can't be cleared";
+  return null;
+}
+
 function isNear(map: TileMap, x: number, y: number, terrain: Terrain, radius: number): boolean {
   for (let dy = -radius; dy <= radius; dy++)
     for (let dx = -radius; dx <= radius; dx++)
