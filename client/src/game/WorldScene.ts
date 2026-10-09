@@ -3,7 +3,6 @@ import { Callbacks, type Room } from "@colyseus/sdk";
 import {
   BUILDINGS,
   MAP_SIZE,
-  TERRAIN_COLORS,
   TILE_SIZE,
   generateMap,
   placementError,
@@ -11,7 +10,6 @@ import {
   type BuildingType,
   type GameState,
   type TileMap,
-  Terrain,
   buildingTiles,
   buildLineTiles,
   planBuildLine,
@@ -21,6 +19,7 @@ import {
   type TilePosition,
 } from "@ee/shared";
 import { useGame } from "../store";
+import { terrainFrame } from "./terrainFrame";
 
 const PAN_SPEED = 600; // px per second at zoom 1
 const MIN_ZOOM = 0.5;
@@ -34,10 +33,11 @@ const DRAG_THRESHOLD = 6;
 export class WorldScene extends Phaser.Scene {
   private map!: TileMap;
   private sprites = new Map<string, Phaser.GameObjects.Container>();
+  private lineSprites = new Map<string, Phaser.GameObjects.Image>();
   /** "x,y" → type of the building covering that tile. Kept in sync with state. */
   private occupied = new Map<string, BuildingType>();
   private ghost!: Phaser.GameObjects.Rectangle;
-  private terrainChanges!: Phaser.GameObjects.Graphics;
+  private terrainLayer!: Phaser.Tilemaps.TilemapLayer;
   private linePreview!: Phaser.GameObjects.Graphics;
   private lineStart: { type: LineBuildingType; tile: TilePosition } | null = null;
   private keys!: Record<"up" | "down" | "left" | "right" | "w" | "a" | "s" | "d", Phaser.Input.Keyboard.Key>;
@@ -48,6 +48,18 @@ export class WorldScene extends Phaser.Scene {
 
   constructor(private room: Room<any, GameState>) {
     super("world");
+  }
+
+  preload() {
+    this.load.image("terrain", `${import.meta.env.BASE_URL}assets/terrain/terrain.png`);
+    for (const type of Object.keys(BUILDINGS) as BuildingType[]) {
+      const url = `${import.meta.env.BASE_URL}assets/buildings/${type}.png`;
+      if (type === "road" || type === "wall") {
+        this.load.spritesheet(type, url, { frameWidth: TILE_SIZE, frameHeight: TILE_SIZE });
+      } else {
+        this.load.image(type, url);
+      }
+    }
   }
 
   create() {
@@ -77,7 +89,6 @@ export class WorldScene extends Phaser.Scene {
       this.map[y * MAP_SIZE + x] = terrain;
     });
     this.drawTerrain();
-    this.terrainChanges = this.add.graphics().setDepth(1);
     this.setupCamera();
     this.setupInput();
 
@@ -92,18 +103,14 @@ export class WorldScene extends Phaser.Scene {
       callbacks.onAdd("terrainOverrides", (terrain, key) => {
         const [x, y] = key.split(",").map(Number);
         this.map[y * MAP_SIZE + x] = terrain;
-        const hash = Math.sin(x * 12.9898 + y * 78.233) * 43758.5453;
-        const shade = (hash - Math.floor(hash)) * 6 - 3;
-        this.terrainChanges.fillStyle(Phaser.Display.Color.ValueToColor(TERRAIN_COLORS[terrain as Terrain]).lighten(shade).color);
-        this.terrainChanges.fillRect(x * TILE_SIZE, y * TILE_SIZE, TILE_SIZE, TILE_SIZE);
-        this.terrainChanges.lineStyle(1, 0x000000, 0.08);
-        this.terrainChanges.strokeRect(x * TILE_SIZE, y * TILE_SIZE, TILE_SIZE, TILE_SIZE);
+        this.terrainLayer.putTileAt(terrainFrame(this.map, x, y), x, y, false);
       }),
       callbacks.onAdd("buildings", (b, id) => {
-        this.addBuildingSprite(id, b);
         for (const tile of buildingTiles(b.type as BuildingType, b.x, b.y)) {
           this.occupied.set(`${tile.x},${tile.y}`, b.type as BuildingType);
         }
+        this.addBuildingSprite(id, b);
+        if (b.type === "road" || b.type === "wall") this.refreshLineSprites(b.x, b.y);
       }),
       callbacks.onRemove("buildings", (b, id) => {
         this.sprites.get(id)?.destroy();
@@ -111,42 +118,31 @@ export class WorldScene extends Phaser.Scene {
         for (const tile of buildingTiles(b.type as BuildingType, b.x, b.y)) {
           this.occupied.delete(`${tile.x},${tile.y}`);
         }
+        if (b.type === "road" || b.type === "wall") {
+          this.lineSprites.delete(`${b.x},${b.y}`);
+          this.refreshLineSprites(b.x, b.y);
+        }
       }),
     );
   }
 
   private drawTerrain() {
-    // One texel per tile keeps the static terrain small and avoids replaying
-    // MAP_SIZE² Graphics rectangles on the first frame and every frame after.
-    const texture = this.textures.createCanvas("world-terrain", MAP_SIZE, MAP_SIZE)!;
-    const pixels = texture.context.createImageData(MAP_SIZE, MAP_SIZE);
-    for (let y = 0; y < MAP_SIZE; y++) {
-      for (let x = 0; x < MAP_SIZE; x++) {
-        const terrain = this.map[y * MAP_SIZE + x] as Terrain;
-        // Subtle per-tile shade noise so the map doesn't look flat.
-        const hash = Math.sin(x * 12.9898 + y * 78.233) * 43758.5453;
-        const shade = (hash - Math.floor(hash)) * 6 - 3;
-        const color = Phaser.Display.Color.ValueToColor(TERRAIN_COLORS[terrain]).lighten(shade);
-        const offset = (y * MAP_SIZE + x) * 4;
-        pixels.data[offset] = color.red;
-        pixels.data[offset + 1] = color.green;
-        pixels.data[offset + 2] = color.blue;
-        pixels.data[offset + 3] = 255;
-      }
-    }
-    texture.context.putImageData(pixels, 0, 0);
-    texture.refresh();
-    texture.setFilter(Phaser.Textures.FilterMode.NEAREST);
+    // TilemapLayer batches one atlas and culls offscreen tiles instead of
+    // replaying the whole map as Graphics or allocating a world-sized texture.
+    const data = Array.from({ length: MAP_SIZE }, (_, y) =>
+      Array.from({ length: MAP_SIZE }, (_, x) => terrainFrame(this.map, x, y)));
+    const tilemap = this.make.tilemap({ data, tileWidth: TILE_SIZE, tileHeight: TILE_SIZE });
+    const tileset = tilemap.addTilesetImage("terrain", "terrain", TILE_SIZE, TILE_SIZE, 0, 0, 0)!;
+    this.terrainLayer = tilemap.createLayer(0, tileset, 0, 0, false) as Phaser.Tilemaps.TilemapLayer;
     const worldSize = MAP_SIZE * TILE_SIZE;
-    this.add.image(0, 0, texture.key).setOrigin(0).setDisplaySize(worldSize, worldSize);
 
-    const releaseTexture = () => {
-      this.events.off(Phaser.Scenes.Events.SHUTDOWN, releaseTexture);
-      this.events.off(Phaser.Scenes.Events.DESTROY, releaseTexture);
-      this.textures.remove(texture.key);
+    const releaseTilemap = () => {
+      this.events.off(Phaser.Scenes.Events.SHUTDOWN, releaseTilemap);
+      this.events.off(Phaser.Scenes.Events.DESTROY, releaseTilemap);
+      tilemap.destroy();
     };
-    this.events.once(Phaser.Scenes.Events.SHUTDOWN, releaseTexture);
-    this.events.once(Phaser.Scenes.Events.DESTROY, releaseTexture);
+    this.events.once(Phaser.Scenes.Events.SHUTDOWN, releaseTilemap);
+    this.events.once(Phaser.Scenes.Events.DESTROY, releaseTilemap);
 
     // Centered 1px rectangles match the old strokes, including the darker
     // intersections, without allocating stroke paths in Phaser's renderer.
@@ -158,14 +154,28 @@ export class WorldScene extends Phaser.Scene {
   }
 
   private addBuildingSprite(id: string, b: Building) {
-    const def = BUILDINGS[b.type as BuildingType];
-    const width = def.width * TILE_SIZE;
-    const height = def.height * TILE_SIZE;
-    const pad = 3;
-    const rect = this.add.rectangle(pad, pad, width - pad * 2, height - pad * 2, def.color).setOrigin(0).setStrokeStyle(2, 0x000000, 0.5);
-    const label = this.add.text(width / 2, height / 2, def.name[0], { fontSize: "14px", color: "#fff", fontStyle: "bold" }).setOrigin(0.5);
-    const container = this.add.container(b.x * TILE_SIZE, b.y * TILE_SIZE, [rect, label]).setDepth(5);
+    const image = this.add.image(0, 0, b.type).setOrigin(0);
+    const container = this.add.container(b.x * TILE_SIZE, b.y * TILE_SIZE, [image]).setDepth(5);
     this.sprites.set(id, container);
+    if (b.type === "road" || b.type === "wall") this.lineSprites.set(`${b.x},${b.y}`, image);
+  }
+
+  private refreshLineSprites(x: number, y: number) {
+    // Frames encode N=1, E=2, S=4, W=8. Only changed tiles and their
+    // neighbors need refreshing; connections are entirely visual.
+    const directions = [[0, -1], [1, 0], [0, 1], [-1, 0]] as const;
+    for (const [dx, dy] of [[0, 0], ...directions]) {
+      const tx = x + dx, ty = y + dy;
+      const key = `${tx},${ty}`;
+      const image = this.lineSprites.get(key);
+      if (!image) continue;
+      const type = this.occupied.get(key);
+      let mask = 0;
+      directions.forEach(([nx, ny], index) => {
+        if (this.occupied.get(`${tx + nx},${ty + ny}`) === type) mask |= 1 << index;
+      });
+      image.setFrame(mask);
+    }
   }
 
   private setupCamera() {

@@ -1,0 +1,11 @@
+Use case: stylized-concept. Asset type: transparent pixel-art road and stone-wall connection tiles for a square-grid top-down medieval game.
+Use the supplied building sheet only as a palette/material reference. Create a NEW clean connection tilesheet, top-down orthographic (not isometric), NO labels, NO text, NO borders, transparent alpha.
+EXACT layout: 2 columns x 6 rows, equal square cells, canvas 1024x3072. LEFT column packed earth road with cobbles; RIGHT column gray crenellated stone wall. Every tile should read as 32x32 native pixels enlarged 16x, hard chunky square pixels, no smoothing. Roads and walls occupy narrow central strips with transparent surrounding corners. Light upper left. For connected directions the strip MUST reach exactly to cell boundary, no margin, so neighboring tiles join. Center width about half the cell. Materials consistent between every row.
+Both columns share row shapes:
+row 1: isolated center square/post, connected to NO edges;
+row 2: dead end, center to NORTH/top edge only;
+row 3: straight vertical strip from NORTH/top to SOUTH/bottom;
+row 4: right angle center to NORTH/top and EAST/right;
+row 5: T junction center to NORTH/top, EAST/right and WEST/left;
+row 6: cross center to all NORTH EAST SOUTH WEST edges.
+Road texture earthy ochre cobblestone, gray stone walls use chunky stones and battlements viewed from directly above so rotation is usable. SAME uniform connection width across all cells, SAME centered positions, no grass bases, no shadows outside tile, no props, no ground backdrop. Seamless matching connection ends. Keep each image in its cell. Exactly 12 cells.

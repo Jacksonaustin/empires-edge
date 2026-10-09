@@ -12,6 +12,7 @@ export function PhaserGame({ room }: { room: Room<any, GameState> }) {
     const scene = new WorldScene(room);
     const game = new Phaser.Game({
       type: Phaser.AUTO,
+      pixelArt: true,
       parent: container.current!,
       backgroundColor: "#1b1b1b",
       scale: { mode: Phaser.Scale.RESIZE, width: "100%", height: "100%" },

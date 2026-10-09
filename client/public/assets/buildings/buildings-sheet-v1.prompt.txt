@@ -1,0 +1,13 @@
+Use case: stylized-concept
+Asset type: transparent pixel-art building sprite sheet for Edge of Empire, a top-down browser frontier defense game.
+Create one cohesive spritesheet containing exactly eight separate sprites, no text or labels, no grid drawn, no background, actual transparent alpha. Medieval frontier architecture, gray stone, warm timber, ochre crops and restrained terracotta roofs. Consistent near-overhead orthographic three-quarter top-down view, square axis-aligned footprints, NEVER isometric diamond footprints. Light from upper left. Crisp deliberately chunky pixel art, limited palette, hard square pixels, no antialiasing, gradients or blurry edges.
+Layout: portrait canvas 1024x2048, two equal columns and four equal rows, each cell exactly 512x512. Every sprite centered within its own cell, no overlap. Work as native 32px-per-tile art enlarged exactly 4x nearest-neighbor; visible art pixels should be 4x4 output pixels. Footprints refer to native pixel dimensions, preserve relative scales.
+Row 1 left: KEEP, 4x4 tiles /128x128 native, fortified square stone keep with crenellated corner towers, central courtyard and southern gate, gold banner, sprite fits inside 512x512 output cell.
+Row 1 right: FARM, 3x3 tiles /96x96 native, neat rows of golden crops, small timber barn and low fence, occupies 384x384 output footprint.
+Row 2 left: LUMBER CAMP, 2x2 tiles /64x64 native, timber shelter, sawhorse, stacked cut logs, occupies 256x256 output footprint.
+Row 2 right: QUARRY, 3x3 tiles /96x96 native, stepped gray stone excavation, stone blocks and small wooden hoist, occupies 384x384 output footprint.
+Row 3 left: HOUSE, 2x2 tiles /64x64 native, timber and plaster cottage, terracotta roof, chimney, occupies 256x256 output footprint.
+Row 3 right: WATCHTOWER, 2x2 tiles /64x64 native, compact timber-and-stone tower with elevated lookout platform, occupies 256x256 output footprint. No height overflow beyond footprint.
+Row 4 left: ROAD, 1x1 tile /32x32 native, square packed earth and scattered small cobbles, fills 128x128 output footprint with all edges seamless; no grass backdrop.
+Row 4 right: WALL, 1x1 tile /32x32 native, horizontal stone curtain-wall segment with crenellations, occupies 128x128 output footprint; side ends join adjacent segments.
+All empty cell space fully transparent. All buildings whole and uncropped with tiny margin inside their footprint. No people, terrain scene, UI, decorative frames, lettering or watermarks.
