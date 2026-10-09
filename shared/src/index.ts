@@ -5,3 +5,4 @@ export * from "./buildings";
 export * from "./rules";
 export * from "./schema";
 export * from "./messages";
+export * from "./construction";

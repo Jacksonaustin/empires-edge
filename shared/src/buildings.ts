@@ -1,7 +1,7 @@
 import type { Cost, Resources } from "./resources";
 import { Terrain } from "./terrain";
 
-export type BuildingType = "keep" | "farm" | "lumberCamp" | "quarry" | "house" | "wall" | "watchtower";
+export type BuildingType = "road" | "keep" | "farm" | "lumberCamp" | "quarry" | "house" | "wall" | "watchtower";
 
 export interface BuildingDef {
   name: string;
@@ -20,6 +20,7 @@ export interface BuildingDef {
 }
 
 export const BUILDINGS: Record<BuildingType, BuildingDef> = {
+  road:       { name: "Road",        width: 1, height: 1, cost: { wood: 5 },          produces: {},                   hp: 300,  color: 0x9b8968 },
   keep:       { name: "Keep",        width: 4, height: 4, cost: {},                    produces: { food: 1, wood: 1 }, hp: 1000, color: 0xc9a227, unbuildable: true },
   farm:       { name: "Farm",        width: 3, height: 3, cost: { wood: 20 },          produces: { food: 2 },          hp: 100,  color: 0xe0c060 },
   lumberCamp: { name: "Lumber Camp", width: 2, height: 2, cost: { wood: 30 },          produces: { wood: 2 },          hp: 120,  color: 0x8b5a2b, near: Terrain.Forest },

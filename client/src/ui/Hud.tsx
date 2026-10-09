@@ -47,7 +47,10 @@ export function Hud() {
       </div>
 
       {toast && <div className="toast">{toast}</div>}
-      <div className="help">Drag or WASD to pan · scroll to zoom · Esc / right-click to cancel</div>
+      <div className="help">
+        {selected === "road" || selected === "wall" ? "Click start, then click end to build · " : ""}
+        Drag or WASD to pan · scroll to zoom · Esc / right-click to cancel
+      </div>
     </div>
   );
 }

@@ -13,6 +13,8 @@ import {
   isBuildingType,
   placementError,
   buildingTiles,
+  planBuildLine,
+  type BuildLineMessage,
   type BuildMessage,
   type BuildingType,
   type ErrorMessage,
@@ -42,6 +44,7 @@ export class ProvinceRoom extends Room<{ state: GameState }> {
     this.addBuilding("keep", center, center);
 
     this.onMessage("build", (client, msg: BuildMessage) => this.handleBuild(client, msg));
+    this.onMessage("buildLine", (client, msg: BuildLineMessage) => this.handleBuildLine(client, msg));
     this.clock.setInterval(() => this.produce(), PRODUCTION_TICK_MS);
   }
 
@@ -58,7 +61,11 @@ export class ProvinceRoom extends Room<{ state: GameState }> {
     if (!msg || !isBuildingType(msg.type) || !Number.isInteger(msg.x) || !Number.isInteger(msg.y)) {
       return this.reject(client, "Invalid build command");
     }
-    const error = placementError(this.map, (x, y) => this.occupied.has(`${x},${y}`), this.resources(), msg.type, msg.x, msg.y);
+    const buildingTypeAt = (x: number, y: number): BuildingType | undefined => {
+      const id = this.occupied.get(`${x},${y}`);
+      return id === undefined ? undefined : this.state.buildings.get(id)?.type as BuildingType | undefined;
+    };
+    const error = placementError(this.map, (x, y) => this.occupied.has(`${x},${y}`), buildingTypeAt, this.resources(), msg.type, msg.x, msg.y);
     if (error) return this.reject(client, error);
 
     const cost = BUILDINGS[msg.type].cost;
@@ -66,11 +73,28 @@ export class ProvinceRoom extends Room<{ state: GameState }> {
     this.addBuilding(msg.type, msg.x, msg.y);
   }
 
+  private handleBuildLine(client: Client, msg: BuildLineMessage) {
+    if (!msg || (msg.type !== "road" && msg.type !== "wall") || !msg.start || !msg.end) {
+      return this.reject(client, "Invalid build line command");
+    }
+    const lookup = (x: number, y: number): BuildingType | undefined => {
+      const id = this.occupied.get(`${x},${y}`);
+      return id === undefined ? undefined : this.state.buildings.get(id)?.type as BuildingType | undefined;
+    };
+    const plan = planBuildLine(this.map, lookup, this.resources(), msg.type, msg.start, msg.end);
+    if (plan.error) return this.reject(client, plan.error);
+
+    // Validate the entire route first, so a rejected route spends nothing.
+    const cost = BUILDINGS[msg.type].cost;
+    for (const resource of RESOURCE_KINDS) this.state[resource] -= (cost[resource] ?? 0) * plan.tiles.length;
+    for (const tile of plan.tiles) this.addBuilding(msg.type, tile.x, tile.y);
+  }
+
   private addBuilding(type: BuildingType, x: number, y: number) {
     const id = String(this.nextId++);
     this.state.buildings.set(id, new Building({ id, type, x, y, hp: BUILDINGS[type].hp }));
     for (const tile of buildingTiles(type, x, y)) {
-    this.occupied.set(`${tile.x},${tile.y}`, id);
+      this.occupied.set(`${tile.x},${tile.y}`, id);
     }
   }
 

@@ -13,6 +13,10 @@ import {
   type TileMap,
   Terrain,
   buildingTiles,
+  buildLineTiles,
+  planBuildLine,
+  type LineBuildingType,
+  type TilePosition,
 } from "@ee/shared";
 import { useGame } from "../store";
 
@@ -28,7 +32,11 @@ const DRAG_THRESHOLD = 6;
 export class WorldScene extends Phaser.Scene {
   private map!: TileMap;
   private sprites = new Map<string, Phaser.GameObjects.Container>();
+  /** "x,y" → type of the building covering that tile. Kept in sync with state. */
+  private occupied = new Map<string, BuildingType>();
   private ghost!: Phaser.GameObjects.Rectangle;
+  private linePreview!: Phaser.GameObjects.Graphics;
+  private lineStart: { type: LineBuildingType; tile: TilePosition } | null = null;
   private keys!: Record<"up" | "down" | "left" | "right" | "w" | "a" | "s" | "d", Phaser.Input.Keyboard.Key>;
   private dragStart: { x: number; y: number; scrollX: number; scrollY: number } | null = null;
   private dragged = false;
@@ -66,13 +74,25 @@ export class WorldScene extends Phaser.Scene {
     this.setupInput();
 
     this.ghost = this.add.rectangle(0, 0, TILE_SIZE, TILE_SIZE).setOrigin(0).setDepth(10).setVisible(false);
+    this.linePreview = this.add.graphics().setDepth(10);
+    this.unsubscribers.push(useGame.subscribe((state, previous) => {
+      if (state.selectedBuild !== previous.selectedBuild) this.cancelLine();
+    }));
 
     const callbacks = Callbacks.get(this.room);
     this.unsubscribers.push(
-      callbacks.onAdd("buildings", (b, id) => this.addBuildingSprite(id, b)),
-      callbacks.onRemove("buildings", (_b, id) => {
+      callbacks.onAdd("buildings", (b, id) => {
+        this.addBuildingSprite(id, b);
+        for (const tile of buildingTiles(b.type as BuildingType, b.x, b.y)) {
+          this.occupied.set(`${tile.x},${tile.y}`, b.type as BuildingType);
+        }
+      }),
+      callbacks.onRemove("buildings", (b, id) => {
         this.sprites.get(id)?.destroy();
         this.sprites.delete(id);
+        for (const tile of buildingTiles(b.type as BuildingType, b.x, b.y)) {
+          this.occupied.delete(`${tile.x},${tile.y}`);
+        }
       }),
     );
   }
@@ -119,7 +139,10 @@ export class WorldScene extends Phaser.Scene {
     this.keys = kb.addKeys({
       up: "UP", down: "DOWN", left: "LEFT", right: "RIGHT", w: "W", a: "A", s: "S", d: "D",
     }) as typeof this.keys;
-    kb.on("keydown-ESC", () => useGame.getState().selectBuild(null));
+    kb.on("keydown-ESC", () => {
+      this.cancelLine();
+      useGame.getState().selectBuild(null);
+    });
 
     this.input.on("wheel", (_p: unknown, _o: unknown, _dx: number, dy: number) => {
       const cam = this.cameras.main;
@@ -128,9 +151,12 @@ export class WorldScene extends Phaser.Scene {
 
     this.input.on("pointerdown", (p: Phaser.Input.Pointer) => {
       if (p.rightButtonDown()) {
+        this.cancelLine();
+        this.dragStart = null;
         useGame.getState().selectBuild(null);
         return;
       }
+      if (!p.leftButtonDown()) return;
       const cam = this.cameras.main;
       this.dragStart = { x: p.x, y: p.y, scrollX: cam.scrollX, scrollY: cam.scrollY };
       this.dragged = false;
@@ -152,8 +178,33 @@ export class WorldScene extends Phaser.Scene {
       const type = useGame.getState().selectedBuild;
       if (!type) return;
       const { x, y } = this.tileAt(p);
+      if (type === "road" || type === "wall") {
+        if (!this.lineStart || this.lineStart.type !== type) {
+          if (x < 0 || y < 0 || x >= MAP_SIZE || y >= MAP_SIZE) {
+            useGame.getState().showToast("Out of bounds");
+            return;
+          }
+          this.lineStart = { type, tile: { x, y } };
+        } else {
+          const { food, wood, stone, gold } = this.room.state;
+          const plan = planBuildLine(this.map, (bx, by) => this.occupied.get(`${bx},${by}`),
+            { food, wood, stone, gold }, type, this.lineStart.tile, { x, y });
+          if (plan.error) {
+            useGame.getState().showToast(plan.error);
+            return;
+          }
+          this.room.send("buildLine", { type, start: this.lineStart.tile, end: { x, y } });
+          this.cancelLine();
+        }
+        return;
+      }
       this.room.send("build", { type, x, y });
     });
+  }
+
+  private cancelLine() {
+    this.lineStart = null;
+    this.linePreview?.clear();
   }
 
   private tileAt(p: Phaser.Input.Pointer) {
@@ -176,26 +227,40 @@ export class WorldScene extends Phaser.Scene {
 
   private updateGhost() {
     const type = useGame.getState().selectedBuild;
+    this.linePreview.clear();
     if (!type) {
       this.ghost.setVisible(false);
       return;
     }
     const def = BUILDINGS[type];
-    this.ghost.setSize(
-      def.width * TILE_SIZE,
-      def.height * TILE_SIZE
-    );
+    this.ghost.setSize(def.width * TILE_SIZE, def.height * TILE_SIZE);
 
     const { x, y } = this.tileAt(this.input.activePointer);
-    const state = this.room.state;
-    const occupied = new Set<string>();
-    state.buildings.forEach((b) => {
-     for (const tile of buildingTiles(b.type as BuildingType, b.x, b.y)) {
-    occupied.add(`${tile.x},${tile.y}`);
+    const { food, wood, stone, gold } = this.room.state;
+    if (this.lineStart && this.lineStart.type === type) {
+      this.ghost.setVisible(false);
+      const start = this.lineStart.tile;
+      const plan = planBuildLine(this.map, (bx, by) => this.occupied.get(`${bx},${by}`),
+        { food, wood, stone, gold }, this.lineStart.type, start, { x, y });
+      // Avoid generating an unbounded preview when the pointer is outside the map.
+      if ([start.x, start.y, x, y].some((v) => v < 0 || v >= MAP_SIZE)) return;
+      this.linePreview.fillStyle(def.color, 0.5);
+      this.linePreview.lineStyle(2, plan.error ? 0xff5050 : 0x7cff7c, 1);
+      for (const tile of buildLineTiles(start, { x, y })) {
+        this.linePreview.fillRect(tile.x * TILE_SIZE, tile.y * TILE_SIZE, TILE_SIZE, TILE_SIZE);
+        this.linePreview.strokeRect(tile.x * TILE_SIZE, tile.y * TILE_SIZE, TILE_SIZE, TILE_SIZE);
       }
-    });
-    const { food, wood, stone, gold } = state;
-    const valid = placementError(this.map, (bx, by) => occupied.has(`${bx},${by}`), { food, wood, stone, gold }, type, x, y) === null;
+      return;
+    }
+    const valid = placementError(
+      this.map,
+      (bx, by) => this.occupied.has(`${bx},${by}`),
+      (bx, by) => this.occupied.get(`${bx},${by}`),
+      { food, wood, stone, gold },
+      type,
+      x,
+      y,
+    ) === null;
 
     this.ghost
       .setVisible(true)

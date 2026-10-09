@@ -21,6 +21,7 @@ export function buildingTiles(type: BuildingType, x: number, y: number): Array<{
 export function placementError(
   map: TileMap,
   isOccupied: (x: number, y: number) => boolean,
+  buildingTypeAt: (x: number, y: number) => BuildingType | undefined,
   resources: Resources,
   type: BuildingType,
   x: number,
@@ -33,26 +34,36 @@ export function placementError(
   const tiles = buildingTiles(type, x, y);
 
   for (const tile of tiles) {
-   const terrain = terrainAt(map, tile.x, tile.y);
-   if (terrain === undefined) return "Out of bounds";
-   if (terrain !== Terrain.Grass) return "Must build on grass";
-   if (isOccupied(tile.x, tile.y)) return "Tile is occupied";
+    const terrain = terrainAt(map, tile.x, tile.y);
+    if (terrain === undefined) return "Out of bounds";
+    if (terrain !== Terrain.Grass) return "Must build on grass";
+    if (isOccupied(tile.x, tile.y)) return "Tile is occupied";
   }
 
   const near = def.near;
-
   if (near !== undefined) {
-    const hasNearbyTerrain = tiles.some((tile) =>
-    isNear(map, tile.x, tile.y, near, 2)
-    );
-  
-
-    if (!hasNearbyTerrain) {
-      return `Must be near ${Terrain[near].toLowerCase()}`;
-    }
-
-   
+    const hasNearbyTerrain = tiles.some((tile) => isNear(map, tile.x, tile.y, near, 2));
+    if (!hasNearbyTerrain) return `Must be near ${Terrain[near].toLowerCase()}`;
   }
+
+  // Only edge contact counts; diagonal neighbors don't connect roads.
+  if (type !== "wall") {
+    const touchesConnection = tiles.some((tile) => {
+      const neighbors = [
+        buildingTypeAt(tile.x - 1, tile.y),
+        buildingTypeAt(tile.x + 1, tile.y),
+        buildingTypeAt(tile.x, tile.y - 1),
+        buildingTypeAt(tile.x, tile.y + 1),
+      ];
+      return neighbors.some((neighbor) =>
+        neighbor === "road" || (type === "road" && neighbor === "keep")
+      );
+    });
+    if (!touchesConnection) {
+      return type === "road" ? "Road must touch the Keep or another road" : "Must touch a road";
+    }
+  }
+
   if (!canAfford(resources, def.cost)) return "Not enough resources";
   return null;
 }
